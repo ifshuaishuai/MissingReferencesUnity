@@ -4,6 +4,9 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using System.Text;
+using UnityEngine.Assertions;
+using System.Collections.Generic;
 
 /// <summary>
 /// A helper editor script for finding missing references to objects.
@@ -57,10 +60,16 @@ public class MissingReferencesFinder : MonoBehaviour
 
 		foreach (var go in gameObjects)
 		{
-			var components = go.GetComponents<Component>();
+			var components = go.GetComponentsInChildren<Component>(true);
 			
 			foreach (var component in components)
 			{
+				if (component == null)
+				{
+					Debug.LogErrorFormat(go, $"Missing Component / Script on GameObject: {1}", GetFullPath(go));
+					continue;
+				}
+				
 				// Missing components will be null, we can't find their type, etc.
 				if (!component)
 				{
@@ -90,11 +99,59 @@ public class MissingReferencesFinder : MonoBehaviour
 						if (sp.objectReferenceValue == null
 						    && (sp.objectReferenceInstanceIDValue != 0 || objectReferenceStringValue.StartsWith("Missing")))
 						{
-							ShowError(context, go, component.GetType().Name, ObjectNames.NicifyVariableName(sp.name));
+							ShowError(context, go, component.GetType().Name, ObjectNames.NicifyVariableName(sp.name), GetRelativePath(go.transform, component.transform));
 						}
 					}
 				}
 			}
+		}
+	}
+
+	private static string GetRelativePath(Transform root, Transform t)
+	{
+		Assert.IsNotNull(root);
+		Assert.IsNotNull(t);
+		
+		var list = new List<string>();
+
+		const int maxSize = 100;
+
+		bool found = false;
+		Transform current = t;
+		for (int i = 0; i < maxSize; ++i)
+		{
+			if (current == null)
+				break;
+			
+			if (current == root)
+			{
+				list.Add(current.name);
+				found = true;
+				break;
+			}
+			else
+			{
+				list.Add(current.name);
+				current = current.parent;
+			}
+		}
+
+		var sb = new StringBuilder();
+		
+		if (found)
+		{
+			for (int i = list.Count - 1; i >= 0; --i)
+			{
+				string transformName = list[i];
+
+				sb.Append(transformName).Append(i == 0 ? "" : "/");
+			}
+
+			return sb.ToString();
+		}
+		else
+		{
+			return null;
 		}
 	}
 
@@ -106,11 +163,11 @@ public class MissingReferencesFinder : MonoBehaviour
 			       && go.hideFlags == HideFlags.None).ToArray();
 	}
 		
-	private static void ShowError (string context, GameObject go, string componentName, string propertyName)
+	private static void ShowError (string context, GameObject go, string componentName, string propertyName, string relativePath)
 	{
-		var ERROR_TEMPLATE = "Missing Ref in: [{3}]{0}. Component: {1}, Property: {2}";
+		var ERROR_TEMPLATE = "Missing Ref in: [{3}]{0}. Component: {1}, Property: {2}, RelativePath: {4}";
 
-		Debug.LogError(string.Format(ERROR_TEMPLATE, GetFullPath(go), componentName, propertyName, context), go);
+		Debug.LogError(string.Format(ERROR_TEMPLATE, GetFullPath(go), componentName, propertyName, context, relativePath), go);
 	}
 	
 	private static string GetFullPath(GameObject go)
